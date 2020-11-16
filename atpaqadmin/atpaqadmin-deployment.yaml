@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: atpaqadmin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: atpaqadmin
+  template:
+    metadata:
+      labels:
+        app: atpaqadmin
+        version: helidon
+    spec:
+      # The credential files in the secret are base64 encoded twice and hence they need to be decoded for the programs to use them.
+      # This decode-creds initContainer takes care of decoding the files and writing them to a shared volume from which  the app/microservice container
+      # can read them and use it for connecting to ATP.
+      initContainers:
+      - name: decode-creds-order
+        command:
+        - bash
+        - -c
+        - "for i in `ls -1 /tmp/creds-order | grep -v user_name`; do cat /tmp/creds-order/$i  | base64 --decode > /creds-order/$i; done; ls -l /creds-order/*;"
+        image: oraclelinux:7.5
+        volumeMounts:
+        - name: creds-raw-order
+          mountPath: /tmp/creds-order
+          readOnly: false
+        - name: creds-order
+          mountPath: /creds-order
+      - name: decode-creds-inventory
+        command:
+        - bash
+        - -c
+        - "for i in `ls -1 /tmp/creds-inventory | grep -v user_name`; do cat /tmp/creds-inventory/$i  | base64 --decode > /creds-inventory/$i; done; ls -l /creds-inventory/*;"
+        image: oraclelinux:7.5
+        volumeMounts:
+        - name: creds-raw-inventory
+          mountPath: /tmp/creds-inventory
+          readOnly: false
+        - name: creds-inventory
+          mountPath: /creds-inventory
+#      - name: combine-tnsnamesora # as a  convenience for creating dblinks
+#        command:
+#        - bash
+#        - -c
+#        - "cat /tmp/creds-order/tnsnames.ora >> /tmp/creds-inventory/tnsnames.ora ; cp /tmp/creds-inventory/tnsnames.ora /tmp/creds-order/tnsnames.ora;"
+#        image: oraclelinux:7.5
+#        volumeMounts:
+#        - name: creds-order
+#          mountPath: /tmp/creds-order
+#          readOnly: false
+#        - name: creds-inventory
+#          mountPath: /tmp/creds-inventory
+#          readOnly: false
+      containers:
+      - name: helidonatp
+        image: %DOCKER_REGISTRY%/helidonatp:0.1
+        imagePullPolicy: Always
+        env:
+        # orderpdb...
+        - name: oracle.ucp.jdbc.PoolDataSource.orderpdb.user
+          value: "admin"
+        - name: oracle.ucp.jdbc.PoolDataSource.orderpdb.password
+          valueFrom:
+            secretKeyRef:
+              name: atp-user-cred-orderadmin
+              key: password
+        - name: oracle.ucp.jdbc.PoolDataSource.orderpdb.URL
+          value: "jdbc:oracle:thin:@%ORDER_PDB_NAME%_tp?TNS_ADMIN=/msdataworkshop/creds-order"
+        # orderuser.password is used in getConnection(orderuser, orderuser.password) of adminuser datasource not for a dedicated datasource...
+        - name: orderuser.password
+          valueFrom:
+            secretKeyRef:
+              name: atp-user-cred-orderuser
+              key: password
+        # inventorypdb...
+        - name: oracle.ucp.jdbc.PoolDataSource.inventorypdb.user
+          value: "admin"
+        - name: oracle.ucp.jdbc.PoolDataSource.inventorypdb.password
+          valueFrom:
+            secretKeyRef:
+              name: atp-user-cred-inventoryadmin
+              key: password
+        - name: oracle.ucp.jdbc.PoolDataSource.inventorypdb.URL
+          value: "jdbc:oracle:thin:@%INVENTORY_PDB_NAME%_tp?TNS_ADMIN=/msdataworkshop/creds-inventory"
+          # inventoryuser.password is used in getConnection(inventoryuser, inventoryuser.password) of adminuser datasource not for a dedicated datasource...
+        - name: inventoryuser.password
+          valueFrom:
+            secretKeyRef:
+              name: atp-user-cred-inventoryuser
+              key: password
+        - name: WALLET_PWD
+          valueFrom:
+            secretKeyRef:
+              name: atp-user-cred-orderadmin
+              key: walletPassword
+        - name: cwalletobjecturi
+          value: "%cwalletobjecturi%"
+        - name: orderhostname
+          value: "%orderhostname%"
+        - name: orderport
+          value: "%orderport%"
+        - name: orderservice_name
+          value: "%orderservice_name%"
+        - name: orderssl_server_cert_dn
+          value: "%orderssl_server_cert_dn%"
+        - name: inventoryhostname
+          value: "%inventoryhostname%"
+        - name: inventoryport
+          value: "%inventoryport%"
+        - name: inventoryservice_name
+          value: "%inventoryservice_name%"
+        - name: inventoryssl_server_cert_dn
+          value: "%inventoryssl_server_cert_dn%"
+        volumeMounts:
+        - name: creds-order
+          mountPath: /msdataworkshop/creds-order
+        - name: creds-inventory
+          mountPath: /msdataworkshop/creds-inventory
+        ports:
+        - containerPort: 8080
+      restartPolicy: Always
+      volumes:
+      - name: creds-raw-order
+        secret:
+          secretName: atp-demo-binding-order
+      - name: creds-order
+        emptyDir: {}
+      - name: creds-raw-inventory
+        secret:
+          secretName: atp-demo-binding-inventory
+      - name: creds-inventory
+        emptyDir: {}

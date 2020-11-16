@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-helidon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        version: helidon-mp
+    spec:
+      containers:
+      - name: frontend
+        image: %DOCKER_REGISTRY%/frontend-helidon:0.1
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
